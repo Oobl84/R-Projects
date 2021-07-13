@@ -35,7 +35,7 @@ download.file("https://github.com/Oobl84/R-Projects/raw/main/edx_final_project/l
 df <- read.csv(unzip(dl), header=TRUE, stringsAsFactors = FALSE)
 
 dl2 <- tempfile()
-download.file("https://github.com/Oobl84/R-Projects/raw/main/edx_final_project/naic_codes.csv",dl)
+download.file("https://github.com/Oobl84/R-Projects/raw/main/edx_final_project/naic_codes.csv",dl2)
 
 sectors <- read.csv(dl2, header=TRUE, stringsAsFactors = TRUE)
 head(df)
@@ -48,12 +48,14 @@ remove(dl)
 sapply(df, function(x) sum(is.na(x)))
 
 
+
+df$NAIC_2 <- as.numeric(substr(df$NAICS,1,2))
+
+df <- merge(df,sectors,by.x = "NAIC_2", by.y = "Sector", all.x = TRUE)
+
+
 # check target column
 df %>% group_by(MIS_Status) %>% summarise(n())
-
-df["NAIC_2"] <- substr(df["NAICS"],1,2)
-
-df <- df
 
 # drop any rows that don't have a target status. 1997 rows
 
@@ -64,6 +66,8 @@ df3 <- df[(df$MIS_Status != "CHGOFF") & (df$MIS_Status != "P I F"),]
 # recheck for null values
 sapply(df2, function(x) sum(is.na(x)))
 
+#remove unnecessary data
+rm(df, df_test, sectors)
 
 ################
 # Data Cleaning
@@ -71,9 +75,13 @@ sapply(df2, function(x) sum(is.na(x)))
 
 str(df2)
 
-df2 %>% group_by(City) %>% summarise(num=n()) %>% arrange()
+df2 %>% group_by(City) %>% summarise(num=n()) %>% arrange(desc(num))
 
-df2$City <- str_replace_all(df2$City,c("\\[" = "", "\\:" = "", "&" = ""))
+df2$City_2 <- str_replace_all(df2$City, "[[:punct:]]", "")
+
+df2 %>% group_by(City_2) %>% summarise(num=n()) %>% arrange()
+
+df2$City_2 <- str_replace_all(df2$City_2,"\\`", "")
 
 # columns need to be converted to factors before splitting data into train and validation sets
 
@@ -141,7 +149,7 @@ state_defaults %>% ggplot() +
 
 # default_rate by Low doc status
 
-train %>% group_by(is_LowDoc) %>% 
+train %>% group_by(is_lowdoc) %>% 
         summarize(default_rate = sum(defaulted)/n())
 
 ## lowdoc status companies are half as likely to default as non-lowdoc companies
@@ -156,10 +164,16 @@ train %>% group_by(ApprovalFY) %>%
         ggplot(aes(ApprovalFY,default_rate)) + geom_line() + 
         xlab("Approval Year") + ylab("Default Rate (%)")
 
-# number of loans by year
+# number of loans by year # large increase in 2006-07
 train %>% ggplot(aes(ApprovalFY)) + 
-        geom_histogram(col='black', fill='gray', binwidth = 2) +
+        geom_histogram(col='black', fill='gray', binwidth = 1) +
         facet_grid(defaulted ~ .) + ylab("Number of Loans") + xlab("Approval Year")
+
+
+# default rate by sector
+train %>% group_by(Definition) %>% summarise(default_rate = sum(defaulted)*100/n()) %>%
+        ggplot(aes(Definition, default_rate)) + geom_line() + xlab("Industry") +
+        ylab("Default Rate (%)")
 
 
 
