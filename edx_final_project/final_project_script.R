@@ -42,46 +42,37 @@ head(df)
 
 remove(dl)
 
-# get NAICS data file for industry names
 
 # check for null values
 sapply(df, function(x) sum(is.na(x)))
 
-
-
+# get first two nums from NAIC col to join with sectors
 df$NAIC_2 <- as.numeric(substr(df$NAICS,1,2))
 
 df <- merge(df,sectors,by.x = "NAIC_2", by.y = "Sector", all.x = TRUE)
 
 
-# check target column
-df %>% group_by(MIS_Status) %>% summarise(n())
-
-# drop any rows that don't have a target status. 1997 rows
-
-df2 <- df[(df$MIS_Status=="CHGOFF" | df$MIS_Status=="P I F"),]
-
-df3 <- df[(df$MIS_Status != "CHGOFF") & (df$MIS_Status != "P I F"),]
-
-# recheck for null values
-sapply(df2, function(x) sum(is.na(x)))
-
-#remove unnecessary data
-rm(df, df_test, sectors)
-
 ################
 # Data Cleaning
 ################
 
-str(df2)
+str(df)
 
-df2 %>% group_by(City) %>% summarise(num=n()) %>% arrange(desc(num))
+df %>% group_by(City) %>% summarise(num=n()) %>% arrange(desc(num))
 
-df2$City_2 <- str_replace_all(df2$City, "[[:punct:]]", "")
+# cleaning city names
+df$City_2 <- str_replace_all(df$City, "[[:punct:]]", "")
 
-df2 %>% group_by(City_2) %>% summarise(num=n()) %>% arrange()
+df$City_2 <- str_replace_all(df$City_2,"\\`", "")
 
-df2$City_2 <- str_replace_all(df2$City_2,"\\`", "")
+# cleaning revolving line of credit column
+
+df %>% group_by(RevLineCr) %>% summarise(num = n())
+
+# Lots of extraneous codes outside of the key. Rather than guess what the values might equate to it's best to just drop the ones that don't fit
+df <- df %>% filter(RevLineCr == "Y" | RevLineCr == "N")
+
+
 
 # columns need to be converted to factors before splitting data into train and validation sets
 
@@ -96,15 +87,26 @@ num_cols <-c("DisbursementGross", "BalanceGross", "ChgOffPrinGr", "GrAppv", "SBA
 
 date_cols <- c("DisbursementDate", "ApprovalDate")
 
-df2[factor_cols] <- lapply(df2[factor_cols],as.factor)
+df[factor_cols] <- lapply(df[factor_cols],as.factor)
 
-df2[num_cols] <- lapply(df2[num_cols], parse_number)
+df[num_cols] <- lapply(df[num_cols], parse_number)
 
-df2[date_cols] <- lapply(df2[date_cols], parse_date_time2, orders=c("dby"))
+df[date_cols] <- lapply(df[date_cols], parse_date_time2, orders=c("dby"))
 
-df2["is_lowdoc"] <- as.numeric(df2$LowDoc == "Y")
+df["is_lowdoc"] <- as.numeric(df$LowDoc == "Y")
 
-df2["defaulted"] <- as.numeric(df2$MIS_Status == "CHGOFF")
+df["defaulted"] <- as.numeric(df$MIS_Status == "CHGOFF")
+
+
+# drop any rows that don't have a target status. 1997 rows
+
+df2 <- df[(df$MIS_Status=="CHGOFF" | df$MIS_Status=="P I F"),]
+
+df3 <- df[(df$MIS_Status != "CHGOFF") & (df$MIS_Status != "P I F"),]
+
+# recheck for null values
+sapply(df2, function(x) sum(is.na(x)))
+
 
 # Aim to predict whether a loan should have been issued or not based on characteristics given.
 # following columns would give away answer
@@ -175,7 +177,11 @@ train %>% group_by(Definition) %>% summarise(default_rate = sum(defaulted)*100/n
         ggplot(aes(Definition, default_rate)) + geom_line() + xlab("Industry") +
         ylab("Default Rate (%)")
 
+# default rate by revolving line of credit
+train %>% group_by(RevLineCr) %>% summarize(num = n())
 
+train %>% group_by(RevLineCr) %>% filter(RevLineCr == "Y" | RevLineCr == "N") %>%
+        summarise(default_rate = sum(defaulted)*100/n())
 
 
 
