@@ -46,15 +46,21 @@ remove(dl,dl2)
 # check for null values
 sapply(df, function(x) sum(is.na(x)))
 
+# checking sectors
+df %>% group_by(NAICS) %>% summarise(num=n()) %>% arrange(desc(num))
+
+# 22% of rows don't have industry defined. Will keep for now but may discard later
+df %>% summarise(undefined = sum(NAICS == 0)/n())
+
+# add undefined to sector table
+sectors <- sectors %>% add_row(Sector = 0, Definition = 'UNDEFINED', .before = 1)
+
 # get first two nums from NAIC col to join with sectors
 df$NAIC_2 <- as.numeric(substr(df$NAICS,1,2))
 
 df %>% group_by(NAIC_2) %>% summarise(n())
 
-df %>% group_by(NAICS) %>% summarise(n()) %>% arrange(desc(n()))
-
-df <- df %>% filter(NAICS != 0)
-
+# join
 df <- merge(df,sectors,by.x = "NAIC_2", by.y = "Sector", all.x = TRUE)
 
 
@@ -67,21 +73,31 @@ str(df)
 df %>% group_by(City) %>% summarise(num=n()) %>% arrange(desc(num))
 
 # cleaning city names
-df$City_2 <- str_replace_all(df$City, "[[:punct:]]", "")
+df$City <- str_replace_all(df$City, "[[:punct:]]", "")
 
-df$City_2 <- str_replace_all(df$City_2,"\\`", "")
+df$City <- str_replace_all(df$City,"\\`", "")
 
 # cleaning revolving line of credit column
 
 df %>% group_by(RevLineCr) %>% summarise(num = n())
 
-# Lots of extraneous codes outside of the key. Rather than guess what the values might equate to it's best to just drop the ones that don't fit
+# Lots of extraneous codes outside of the key. Reasonable to assume that 0 is equivalent to N and 1 to Y, but drop all others
+df$RevLineCr[df$RevLineCr=="0"] <- "N"
+df$RevLineCr[df$RevLineCr=="1" | df$RevLineCr == "T"] <- "Y"
+
+# Rather than guess what the values might equate to it's best to just drop the ones that don't fit
 df <- df %>% filter(RevLineCr == "Y" | RevLineCr == "N")
 
+# cleaning revolving line of credit column
+
+df %>% group_by(RevLineCr) %>% summarise(num = n())
+
+# check franchise code
+df %>% group_by(FranchiseCode) %>% summarise(num = n())
 
 # columns need to be converted to factors before splitting data into train and validation sets
 
-factor_cols <- c("State", "Zip", "BankState", "NAICS",
+factor_cols <- c("State", "Zip", "BankState", "NAICS_2",
           "UrbanRural", "City", "MIS_Status")
 
 logic_cols_yn <- c("RevLineCr", "LowDoc")
@@ -102,6 +118,10 @@ df["is_lowdoc"] <- as.numeric(df$LowDoc == "Y")
 
 df["defaulted"] <- as.numeric(df$MIS_Status == "CHGOFF")
 
+#add new column for franchise
+df$is_franchise <- as.numeric(df$FranchiseCode == 0 | df$FranchiseCode == 1)
+
+
 # new business
 df %>% group_by(NewExist) %>% summarise(n())
 
@@ -110,13 +130,23 @@ df <- df[(df$NewExist == 1 | df$NewExist == 2),]
 
 df['is_new'] <- as.numeric(df$NewExist == 2)
 
+#check whether bank state is same as borrower state
+df %>% summarise(out_of_state = sum(df$State != df$BankState)/n())
+
+df %>% filter(State != BankState) %>% head(30)
+# nearly half of loans come from out of state banks
+df['is_out_of_state_loan'] <- as.numeric(df$State != df$BankState)
+
+# check urban rural col
+
+df %>% group_by(UrbanRural) %>% summarise(num=n())
+
 # drop columns that would give away the loan status
 df <- df %>% select(-c("ChgOffPrinGr", "ChgOffDate","BalanceGross"))
 
 # drop any rows that don't have a target status. 1997 rows
 
 df %>% group_by(MIS_Status) %>% summarise(n())
-
 
 df2 <- df[(df$MIS_Status=="CHGOFF" | df$MIS_Status=="P I F"),]
 
