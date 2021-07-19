@@ -40,7 +40,7 @@ download.file("https://github.com/Oobl84/R-Projects/raw/main/edx_final_project/n
 sectors <- read.csv(dl2, header=TRUE, stringsAsFactors = TRUE)
 head(df)
 
-remove(dl)
+remove(dl,dl2)
 
 
 # check for null values
@@ -48,6 +48,12 @@ sapply(df, function(x) sum(is.na(x)))
 
 # get first two nums from NAIC col to join with sectors
 df$NAIC_2 <- as.numeric(substr(df$NAICS,1,2))
+
+df %>% group_by(NAIC_2) %>% summarise(n())
+
+df %>% group_by(NAICS) %>% summarise(n()) %>% arrange(desc(n()))
+
+df <- df %>% filter(NAICS != 0)
 
 df <- merge(df,sectors,by.x = "NAIC_2", by.y = "Sector", all.x = TRUE)
 
@@ -73,7 +79,6 @@ df %>% group_by(RevLineCr) %>% summarise(num = n())
 df <- df %>% filter(RevLineCr == "Y" | RevLineCr == "N")
 
 
-
 # columns need to be converted to factors before splitting data into train and validation sets
 
 factor_cols <- c("State", "Zip", "BankState", "NAICS",
@@ -97,20 +102,33 @@ df["is_lowdoc"] <- as.numeric(df$LowDoc == "Y")
 
 df["defaulted"] <- as.numeric(df$MIS_Status == "CHGOFF")
 
+# new business
+df %>% group_by(NewExist) %>% summarise(n())
+
+# drop any rows that don't conform to key
+df <- df[(df$NewExist == 1 | df$NewExist == 2),]
+
+df['is_new'] <- as.numeric(df$NewExist == 2)
+
+# drop columns that would give away the loan status
+df <- df %>% select(-c("ChgOffPrinGr", "ChgOffDate","BalanceGross"))
 
 # drop any rows that don't have a target status. 1997 rows
+
+df %>% group_by(MIS_Status) %>% summarise(n())
+
 
 df2 <- df[(df$MIS_Status=="CHGOFF" | df$MIS_Status=="P I F"),]
 
 df3 <- df[(df$MIS_Status != "CHGOFF") & (df$MIS_Status != "P I F"),]
+
+
 
 # recheck for null values
 sapply(df2, function(x) sum(is.na(x)))
 
 
 # Aim to predict whether a loan should have been issued or not based on characteristics given.
-# following columns would give away answer
-df2 <- df2 %>% select(-c("ChgOffPrinGr", "ChgOffDate","BalanceGross"))
 
 # Validation set will be 10% of SBA data
 set.seed(1, sample.kind="Rounding") # if using R 3.5 or earlier, use `set.seed(1)`
