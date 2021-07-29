@@ -26,7 +26,7 @@ library(fastDummies)
 library(RColorBrewer)
 library(corrplot)
  
-memory.limit(size=350000)
+memory.limit(size=1000000)
  
 # original data source from Kaggle
 # 'https://www.kaggle.com/mirbektoktogaraev/should-this-loan-be-approved-or-denied/download'
@@ -42,7 +42,7 @@ df <- read.csv(unzip(dl), header=TRUE, stringsAsFactors = FALSE)
 dl2 <- tempfile()
 download.file("https://github.com/Oobl84/R-Projects/raw/main/edx_final_project/naic_codes.csv",dl2)
 
-sectors <- read.csv(dl2, header=TRUE, stringsAsFactors = TRUE)
+sectors <- read.csv(dl2, header=TRUE, stringsAsFactors = FALSE)
 head(df)
 
 remove(dl,dl2)
@@ -57,13 +57,12 @@ df <- df %>% drop_na()
 # checking sectors
 df %>% group_by(NAICS) %>% summarise(num=n()) %>% arrange(desc(num))
 
-# 22% of rows don't have industry defined. Will keep for now but may discard later
+# 22% of rows don't have industry defined, will drop these rows
 df %>% summarise(undefined = sum(NAICS == 0)/n())
 
-# add undefined to sector table
-sectors <- sectors %>% add_row(Sector = 0, Definition = 'UNDEFINED', .before = 1)
+df <- df %>% subset(!(df$NAICS == 0))
 
-sectors
+sectors <- sectors %>% rename(sectors = Definition)
 
 # name too long so will shorten
 sectors[sectors == "Agriculture, Forestry, Fishing and Hunting"] <- "Agg, Forest, Fish, Hunt"
@@ -76,16 +75,16 @@ df$NAIC_2 <- as.factor(as.numeric(substr(df$NAICS,1,2)))
 df %>% group_by(NAIC_2) %>% summarise(n())
 
 # get first 3 digits of zip
-df$zip_2 <- as.factor(substr(as.character(df$Zip),1,3))
 
-ex_zips <- df %>% group_by(zip_2) %>% summarise(num = n()) %>% filter(num < 30) 
+#df$zip_2 <- as.factor(substr(as.character(df$Zip),1,3))
 
-df <- df %>% subset(!(zip_2 %in% ex_zips$zip_2))
+#ex_zips <- df %>% group_by(zip_2) %>% summarise(num = n()) %>% filter(num < 30) 
+
+#df <- df %>% subset(!(zip_2 %in% ex_zips$zip_2))
 
 # join
 df <- merge(df,sectors,by.x = "NAIC_2", by.y = "Sector", all.x = TRUE)
 
-df <- df %>% rename(Sector=Definition)
 ################
 # Data Cleaning
 ################
@@ -93,9 +92,20 @@ df <- df %>% rename(Sector=Definition)
 
 str(df)
 
-df %>% group_by(City) %>% summarise(num=n()) %>% arrange(num)
+table(df$State)
+# drop all rows without a state
+df <- df %>% filter(!State == "")
 
-# using zips for region so wil drop city, state
+table(df$BankState)
+
+#drop all rows without a bank state or with fewer than 50 loans
+df <- df %>% filter(!BankState == "")
+
+small_states <- df %>% group_by(BankState) %>% summarise(n = n()) %>% filter(n < 50)
+
+df <- df %>% filter(!BankState %in% small_states$BankState)
+
+# using state for region so will drop zips
 
 #check new or existing business
 df %>% group_by(NewExist) %>% summarise(num = n())
@@ -147,7 +157,7 @@ df$LowDoc[df$LowDoc == "1"] <- "Y"
 
 df$LowDoc <- as.factor(df$LowDoc)
 
-# drop any rows that don't have a target status. 1997 rows
+# drop any rows that don't have a target status. 1664 rows
 
 df %>% group_by(MIS_Status) %>% summarise(n())
 
@@ -163,17 +173,17 @@ df["defaulted"] <- as.factor(as.numeric(df$MIS_Status == "CHGOFF"))
 df <- df %>% select(-c("ChgOffPrinGr", "ChgOffDate","BalanceGross"))
 
 # drop city and name and anything I've created alternative columns for
-df <- df %>% select(-c("Name", "City", "NAICS","Bank", "MIS_Status","Zip","FranchiseCode", "LoanNr_ChkDgt", "NewExist"))
+df <- df %>% select(-c("Name", "City", "NAICS","Bank", "MIS_Status","Zip","FranchiseCode", "LoanNr_ChkDgt", "NewExist","DisbursementDate"))
 
 
 # columns need to be converted to factors before splitting data into train and validation sets
 
-factor_cols <- c("State", "zip_2", "BankState", "NAIC_2",
-          "UrbanRural", "Sector")
+factor_cols <- c("State","BankState", "NAIC_2",
+          "UrbanRural", "sectors")
 
 num_cols <-c("DisbursementGross", "GrAppv", "SBA_Appv", "ApprovalFY")
 
-date_cols <- c("DisbursementDate", "ApprovalDate")
+date_cols <- c("ApprovalDate")
 
 df[factor_cols] <- lapply(df[factor_cols],as.factor)
 
@@ -181,26 +191,54 @@ df[num_cols] <- lapply(df[num_cols], parse_number)
 
 df[date_cols] <- lapply(df[date_cols], parse_date_time2, orders=c("dby"))
 
-
-
 # Feature engineering
 
-#check whether bank state is same as borrower state
+#check whether bank state is same as borrower state. Half of loans are from out of state banks
 df %>% summarise(out_of_state = sum(as.character(df$State) != as.character(df$BankState))/n())
 
 # nearly half of loans come from out of state banks
 df['is_out_of_state_loan'] <- as.factor(as.numeric(as.character(df$State) != as.character(df$BankState)))
 
 # check whether the guarantee is for the same amount as the loan
-df["guarantee_covers_loan"] <- as.factor(as.numeric(df$SBA_Appv >= df$GrAppv))
+df["guarantee_covers_disbursement"] <- as.factor(as.numeric(df$SBA_Appv >= df$DisbursementGross))
 
-df["disbursement_less_than_approved"] <- as.factor(as.numeric(df$DisbursementGross < df$GrAppv))
+df %>% group_by(guarantee_covers_disbursement) %>% summarise(default_rate = sum(defaulted == 1)/n())
 
 
 # check correlation of all pairs
 df.cor <- cor(df[sapply(df, is.numeric)],method="spearman")
 
 corrplot(df.cor)
+
+# strong correlation between disbursement and approval values
+# only need 1 so drop GrAppv and SBA_Appv
+df <- df %>% select(-c("GrAppv", "SBA_Appv"))
+
+# turn DisbursementGross into categories
+custom.cat <- function(x, lower = 0, upper, by=50000, sep="-", above.char="+"){
+        
+        labs <- c(paste(seq(lower, upper - by, by = by),
+                        seq(lower + by - 1, upper - 1, by = by),
+                        sep = sep),
+                  paste(upper, above.char, sep = ""))
+        
+        cut(floor(x), breaks = c(seq(lower, upper, by = by), Inf),
+            right = FALSE, labels = labs)
+}
+
+df['disbursal_range'] <- as.factor(disbursal.cat(df$DisbursementGross, upper=1500000))
+
+# drop disbursal amount
+df <- df %>% select(-DisbursementGross)
+
+# binarise job creation
+df['is_job_creator'] <- as.factor(as.numeric(df$CreateJob > 0))
+
+df %>% group_by(is_job_creator) %>% summarise(default_rate = sum(defaulted == 1)/n())
+
+df['created_jobs_range'] <- as.factor(disbursal.cat(df$CreateJob,lower=1, upper = 100, by=10))
+
+df %>% group_by(created_jobs_range) %>% filter(!is.na(created_jobs_range)) %>% summarise(num = n(), default_rate = sum(defaulted == 1)/n())
 
 # Aim to predict whether a loan should have been issued or not based on characteristics given.
 
@@ -218,7 +256,7 @@ test_split <- createDataPartition(y=tmp$defaulted, times=1, p=0.5, list = FALSE)
 test <- tmp[-test_split,]
 validation <- tmp[test_split,]
 
-rm(df, df2, tmp, num_cols, date_cols, factor_cols, drop_cols, logic_cols_yn, logic_cols_other, test_index, test_split)
+rm(df, df.cor, df2, tmp, num_cols, date_cols, factor_cols, drop_cols, logic_cols_yn, logic_cols_other, test_index, test_split)
 
 ########
 # Model
@@ -232,10 +270,10 @@ train %>% ggplot(aes(defaulted)) +
         theme_economist()
 
 # ~18% of loans have defaulted.
-avg_default <- sum((train$defaulted == 1))*100/nrow(train)
+avg_default <- sum((train$defaulted == 1))/nrow(train)
 
 state_defaults <- train %>% group_by(State) %>% 
-        summarise(default_percent = sum(defaulted == 1)*100/n())
+        summarise(state_default = avg_default - sum(defaulted == 1)/n())
 
 
 # default rate by state
@@ -315,3 +353,4 @@ train %>% ggplot(aes(CreateJob, colour=as.factor(defaulted), fill = as.factor(de
 # building model
 
 glm(formula = defaulted ~ NoEmp + GrAppv + SBA_Appv + LowDoc + Term + RetainedJob + CreateJob, data=train)
+
