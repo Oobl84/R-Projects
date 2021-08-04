@@ -226,7 +226,7 @@ custom.cat <- function(x, lower = 0, upper, by=50000, sep="-", above.char="+"){
             right = FALSE, labels = labs)
 }
 
-df['disbursal_range'] <- as.factor(disbursal.cat(df$DisbursementGross, upper=1500000))
+df['disbursal_range'] <- as.factor(custom.cat(df$DisbursementGross, upper=1500000))
 
 # drop disbursal amount
 df <- df %>% select(-DisbursementGross)
@@ -236,9 +236,11 @@ df['is_job_creator'] <- as.factor(as.numeric(df$CreateJob > 0))
 
 df %>% group_by(is_job_creator) %>% summarise(default_rate = sum(defaulted == 1)/n())
 
-df['created_jobs_range'] <- as.factor(disbursal.cat(df$CreateJob,lower=1, upper = 100, by=10))
+df['created_jobs_range'] <- as.factor(custom.cat(df$CreateJob,lower=1, upper = 100, by=10))
 
 df %>% group_by(created_jobs_range) %>% filter(!is.na(created_jobs_range)) %>% summarise(num = n(), default_rate = sum(defaulted == 1)/n())
+
+# create num employees category, retained jobs category
 
 # Aim to predict whether a loan should have been issued or not based on characteristics given.
 
