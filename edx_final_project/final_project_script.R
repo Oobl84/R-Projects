@@ -15,6 +15,8 @@ if(!require(GGally)) install.packages("GGally", repos = "http://cran.us.r-projec
 if(!require(fastDummies)) install.packages("fastDummies", repos = "http://cran.us.r-project.org")
 if(!require(RColorBrewer)) install.packages("RColorBrewer", repos = "http://cran.us.r-project.org")
 if(!require(corrplot)) install.packages("corrplot", repos = "http://cran.us.r-project.org")
+if(!require(forcats)) install.packages("forcats", repos = "http://cran.us.r-project.org")
+
 
 library(tidyverse)
 library(caret)
@@ -25,6 +27,7 @@ library(GGally)
 library(fastDummies)
 library(RColorBrewer)
 library(corrplot)
+library(forcats)
  
 memory.limit(size=1000000)
  
@@ -215,9 +218,10 @@ corrplot(df.cor)
 df <- df %>% select(-c("GrAppv", "SBA_Appv"))
 
 # turn DisbursementGross into categories
-custom.cat <- function(x, lower = 0, upper, by=50000, sep="-", above.char="+"){
+custom.cat <- function(x, lower = 0, upper, by=50000, sep="-", above.char="+", below.char="<"){
         
-        labs <- c(paste(seq(lower, upper - by, by = by),
+        labs <- c(paste(below.char, lower, sep= ""),
+                  paste(seq(lower, upper - by, by = by),
                         seq(lower + by - 1, upper - 1, by = by),
                         sep = sep),
                   paste(upper, above.char, sep = ""))
@@ -238,7 +242,18 @@ df %>% group_by(is_job_creator) %>% summarise(default_rate = sum(defaulted == 1)
 
 df['created_jobs_range'] <- as.factor(custom.cat(df$CreateJob,lower=1, upper = 100, by=10))
 
-df %>% group_by(created_jobs_range) %>% filter(!is.na(created_jobs_range)) %>% summarise(num = n(), default_rate = sum(defaulted == 1)/n())
+df$created_jobs_range <- addNA(df$created_jobs_range)
+
+df$created_jobs_range <- fct_explicit_na(df$created_jobs_range, "0")
+
+df %>% group_by(created_jobs_range) %>% summarise(num = n(), default_rate = sum(defaulted == 1)/n())
+
+# binarise job retention
+df['retained_jobs_range'] <- as.factor(custom.cat(df$RetainedJob, lower=1, upper=100, by=10))
+
+df$retained_jobs_range <- fct_explicit_na(df$retained_jobs_range, "0")
+
+df %>% group_by(retained_jobs_range) %>% summarise(num = n(), default_rate = sum(defaulted ==1)/n())
 
 # create num employees category, retained jobs category
 
